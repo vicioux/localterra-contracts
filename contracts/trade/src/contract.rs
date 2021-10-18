@@ -1,10 +1,12 @@
+use std::ops::Add;
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    coin, entry_point, to_binary, Addr, Attribute, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut,
-    Env, MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128, WasmMsg, WasmQuery,
+    entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
+    MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128, WasmQuery,
 };
 
+use localterra_protocol::factory::Config as FactoryConfig;
 use localterra_protocol::factory_util::get_factory_config;
 use localterra_protocol::offer::{
     Config as OfferConfig, Offer, OfferType, QueryMsg as OfferQueryMsg,
@@ -167,6 +169,18 @@ fn try_fund_escrow(
     Ok(res)
 }
 
+fn get_offer(deps: &Deps, state: &State) -> Offer {
+    deps.querier
+        .query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: state.offer_contract.to_string(),
+            msg: to_binary(&OfferQueryMsg::Offer {
+                id: state.offer_id.clone(),
+            })
+            .unwrap(),
+        }))
+        .unwrap()
+}
+
 fn try_release(
     deps: DepsMut,
     env: Env,
@@ -202,16 +216,39 @@ fn try_release(
     state.state = TradeState::Closed;
     state_storage(deps.storage).save(&state).unwrap();
 
+    //Calculate fees and final release amount
+    let mut send_msgs: Vec<SubMsg> = Vec::new();
+    let balance = balance_result.unwrap();
+
+    let mut final_balance: Vec<Coin> = Vec::new();
+    let offer = get_offer(&deps.as_ref(), &state);
+    /*
+    let factory_cfg: FactoryConfig =
+        get_factory_config(&deps.querier, state.factory_addr.to_string());
+     */
+
+    if offer.offer_type.eq(&OfferType::Buy) {
+        let local_terra_fee: Vec<Coin> =
+            deduct_localterra_fee(&deps.as_ref(), &balance, &mut final_balance);
+        //let fee_collector = factory_cfg.fee_collector_addr.clone();
+        let fee_collector = state.factory_addr.clone();
+        send_msgs.push(SubMsg::new(create_send_msg(
+            &deps,
+            fee_collector,
+            local_terra_fee,
+        )));
+    }
+
     //Send Coins
-    let res = Response::new().add_submessage(SubMsg::new(create_send_msg(
+    send_msgs.push(SubMsg::new(create_send_msg(
         &deps,
         state.recipient.clone(),
-        balance_result.unwrap(),
+        final_balance.clone(),
     )));
+
+    let res = Response::new().add_submessages(send_msgs);
     Ok(res)
     /*
-    let factory_cfg = get_factory_config(&deps.querier, state.factory_addr.to_string());
-    let local_terra_fee = calculate_local_terra_fee(&balance).unwrap();
     let fee_response = send_tokens(
         &deps,
         factory_cfg.fee_collector_addr.clone(),
@@ -223,16 +260,7 @@ fn try_release(
     let final_balance = balance.clone();
 
     //Query maker to send to the incentives contract
-    let offer: Offer = deps
-        .querier
-        .query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: "".to_string(),
-            msg: to_binary(&OfferQueryMsg::Offer {
-                id: state.offer_id.clone(),
-            })
-            .unwrap(),
-        }))
-        .unwrap();
+
     let maker = offer.owner.to_string();
 
     //Create Trade Registration message to be sent to the Trading Incentives contract.
@@ -283,17 +311,22 @@ fn get_ust_amount(info: MessageInfo) -> Uint128 {
     };
 }
 
-fn calculate_local_terra_fee(balance: &Vec<Coin>) -> StdResult<Vec<Coin>> {
-    let fee_amount = balance[0]
-        .clone()
-        .amount
-        .checked_div(Uint128::new(1000))
-        .unwrap();
-    Ok([Coin {
-        amount: fee_amount,
-        denom: balance[0].clone().denom,
-    }]
-    .to_vec())
+fn deduct_localterra_fee(
+    deps: &Deps,
+    balance: &Vec<Coin>,
+    final_balance: &mut Vec<Coin>,
+) -> Vec<Coin> {
+    let mut fees: Vec<Coin> = Vec::new();
+    balance.iter().for_each(|coin| {
+        let mut fee_amount = coin.amount.checked_div(Uint128::new(1000u128)).unwrap();
+        let fee = Coin::new(fee_amount.u128(), coin.denom.to_string());
+        fees.push(fee);
+        final_balance.push(Coin::new(
+            (coin.amount - fee_amount).u128(),
+            coin.denom.to_string(),
+        ));
+    });
+    fees
 }
 
 fn deduct_local_terra_fee(balance: Vec<Coin>, local_terra_fee: Vec<Coin>) -> StdResult<Vec<Coin>> {
