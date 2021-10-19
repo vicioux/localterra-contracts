@@ -232,8 +232,7 @@ fn try_release(
         .unwrap();
 
     if offer.offer_type.eq(&OfferType::Buy) {
-        let local_terra_fee: Vec<Coin> =
-            deduct_localterra_fee(&deps.as_ref(), &balance, &mut final_balance);
+        let local_terra_fee: Vec<Coin> = deduct_localterra_fee(&balance, &mut final_balance);
         let fee_collector = factory_cfg.fee_collector_addr.clone();
         send_msgs.push(SubMsg::new(create_send_msg(
             &deps,
@@ -294,11 +293,7 @@ fn get_ust_amount(info: MessageInfo) -> Uint128 {
     };
 }
 
-fn deduct_localterra_fee(
-    deps: &Deps,
-    balance: &Vec<Coin>,
-    final_balance: &mut Vec<Coin>,
-) -> Vec<Coin> {
+fn deduct_localterra_fee(balance: &Vec<Coin>, final_balance: &mut Vec<Coin>) -> Vec<Coin> {
     let mut fees: Vec<Coin> = Vec::new();
     balance.iter().for_each(|coin| {
         let mut fee_amount = coin.amount.checked_div(Uint128::new(1000u128)).unwrap();
