@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use cosmwasm_std::{
     entry_point, to_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128, WasmQuery,
+    MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128, WasmMsg, WasmQuery,
 };
 
 use localterra_protocol::factory::{Config as FactoryConfig, QueryMsg as FactoryQuery};
@@ -249,26 +249,20 @@ fn try_release(
         final_balance.clone(),
     )));
 
-    let res = Response::new().add_submessages(send_msgs);
-    Ok(res)
-    /*
     //Create Trade Registration message to be sent to the Trading Incentives contract.
     let register_trade_msg = SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: env.contract.address.to_string(),
+        contract_addr: factory_cfg.trading_incentives_addr.to_string(),
         msg: to_binary(&TradingIncentivesMsg::RegisterTrade {
             trade: env.contract.address.to_string(),
-            maker,
+            maker: offer.owner.to_string(),
         })
         .unwrap(),
         funds: vec![],
     }));
+    send_msgs.push(register_trade_msg);
 
-    let res = Response::new()
-        .add_submessage(fee_response.messages[0].clone())
-        .add_submessage(amount_response.messages[0].clone());
-        .add_submessage(register_trade_msg);
-    Ok(r)
-     */
+    let res = Response::new().add_submessages(send_msgs);
+    Ok(res)
 }
 
 fn try_refund(deps: DepsMut, env: Env, state: State) -> Result<Response, TradeError> {
