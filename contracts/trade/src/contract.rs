@@ -234,8 +234,7 @@ fn try_release(
     if offer.offer_type.eq(&OfferType::Buy) {
         let local_terra_fee: Vec<Coin> =
             deduct_localterra_fee(&deps.as_ref(), &balance, &mut final_balance);
-        //let fee_collector = factory_cfg.fee_collector_addr.clone();
-        let fee_collector = state.factory_addr.clone();
+        let fee_collector = factory_cfg.fee_collector_addr.clone();
         send_msgs.push(SubMsg::new(create_send_msg(
             &deps,
             fee_collector,
