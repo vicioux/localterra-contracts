@@ -6,7 +6,7 @@ use cosmwasm_std::{
     MessageInfo, QueryRequest, Response, StdResult, SubMsg, Uint128, WasmQuery,
 };
 
-use localterra_protocol::factory::Config as FactoryConfig;
+use localterra_protocol::factory::{Config as FactoryConfig, QueryMsg as FactoryQuery};
 use localterra_protocol::factory_util::get_factory_config;
 use localterra_protocol::offer::{
     Config as OfferConfig, Offer, OfferType, QueryMsg as OfferQueryMsg,
@@ -44,7 +44,7 @@ pub fn instantiate(
             contract_addr: offer_contract.clone().into_string(),
             msg: to_binary(&OfferQueryMsg::Config {}).unwrap(),
         }));
-    let _offer_config = load_offer_config_result.unwrap();
+    let offer_cfg = load_offer_config_result.unwrap();
 
     //TODO: it's probably a good idea to store this kind of configuration in a Gov contract.
     let expire_height = env.block.height + 600; //Roughly 1h.
@@ -77,7 +77,7 @@ pub fn instantiate(
 
     //Instantiate Trade state
     let mut state = State {
-        factory_addr: info.sender.clone(),
+        factory_addr: offer_cfg.factory_addr.clone(),
         recipient,
         sender,
         offer_contract: offer_contract.clone(),
@@ -222,10 +222,14 @@ fn try_release(
 
     let mut final_balance: Vec<Coin> = Vec::new();
     let offer = get_offer(&deps.as_ref(), &state);
-    /*
-    let factory_cfg: FactoryConfig =
-        get_factory_config(&deps.querier, state.factory_addr.to_string());
-     */
+
+    let factory_cfg: FactoryConfig = deps
+        .querier
+        .query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: state.factory_addr.to_string(),
+            msg: to_binary(&FactoryQuery::Config {}).unwrap(),
+        }))
+        .unwrap();
 
     if offer.offer_type.eq(&OfferType::Buy) {
         let local_terra_fee: Vec<Coin> =
@@ -249,20 +253,6 @@ fn try_release(
     let res = Response::new().add_submessages(send_msgs);
     Ok(res)
     /*
-    let fee_response = send_tokens(
-        &deps,
-        factory_cfg.fee_collector_addr.clone(),
-        local_terra_fee.clone(),
-        "localterra_fee_deduction",
-    )
-    .unwrap();
-
-    let final_balance = balance.clone();
-
-    //Query maker to send to the incentives contract
-
-    let maker = offer.owner.to_string();
-
     //Create Trade Registration message to be sent to the Trading Incentives contract.
     let register_trade_msg = SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
