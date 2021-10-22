@@ -1,18 +1,23 @@
 #![cfg(test)]
-use crate::contract::{execute, instantiate, query};
-use crate::errors::TradeError;
-use crate::mock_querier::{mock_dependencies, WasmMockQuerier};
+
+use std::ops::Add;
+
 use cosmwasm_std::testing::{MockApi, MockStorage};
 use cosmwasm_std::{
     from_binary, to_binary, Addr, BankMsg, Coin, CosmosMsg, DepsMut, Empty, MessageInfo, OwnedDeps,
     Response, SubMsg, Uint128, WasmMsg,
 };
 use cosmwasm_vm::testing::{mock_env, mock_info};
+
 use localterra_protocol::currencies::FiatCurrency;
 use localterra_protocol::offer::{Offer, OfferState, OfferType};
 use localterra_protocol::trade::{ExecuteMsg, InstantiateMsg, QueryMsg, State, TradeState};
 use localterra_protocol::trading_incentives::ExecuteMsg as TradingIncentivesMsg;
-use std::ops::Add;
+
+use crate::contract::{execute, instantiate, query, subtract_localterra_fee};
+use crate::errors::TradeError;
+use crate::mock_querier::{mock_dependencies, WasmMockQuerier};
+use crate::taxation::compute_tax;
 
 #[test]
 fn test_init() {
@@ -293,7 +298,7 @@ fn test_refund() {
 ///Test fund escrow after instantiating Trade without coins
 #[test]
 fn test_fund_escrow() {
-    let trade_amount = Uint128::from(500_000_000u128);
+    let mut trade_amount = Uint128::from(500_000_000u128);
     let mut info = mock_info_with_ust("taker", Uint128::zero());
     let (_, mut deps) = create_trade(trade_amount.clone(), info.clone(), None);
 
@@ -303,7 +308,10 @@ fn test_fund_escrow() {
     assert_eq!(trade_state.state, TradeState::Created);
 
     //Send FundEscrow message with UST and check that trade is in EscrowFunded state.
+    let localterra_fee = subtract_localterra_fee(trade_amount);
+    trade_amount = trade_amount.add(localterra_fee);
     info.funds[0].amount = trade_amount.clone();
+
     let res = execute(
         deps.as_mut(),
         mock_env(),
